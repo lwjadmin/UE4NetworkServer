@@ -22,7 +22,7 @@
 //
 using namespace std;
 //
-const char* NET_SERVER_IPV4 = "172.16.2.146";
+const char* NET_SERVER_IPV4 = "127.0.0.1";
 const int NET_SERVER_PORT = 5001;
 const int NET_PACKET_SIZE = 512;
 //                      
@@ -30,8 +30,8 @@ WSAData NET_WSADATA = { 0, };
 SOCKET NET_SERVERSOCKET = NULL;
 SOCKADDR_IN NET_SERVERADDR = { 0, };
 //                      
-const string DB_SERVERNAME = "tcp://172.16.2.146:3306";
-const string DB_USERNAME = "AnimalGuysAdmin";
+const string DB_SERVERNAME = "tcp://127.0.0.1:3306";
+const string DB_USERNAME = "root";
 const string DB_PASSWORD = "Passw0rd";
 const string DB_DBNAME = "ANIMALGUYS";
 //                      
@@ -54,7 +54,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
     int retval = 0;
     char Packet[NET_PACKET_SIZE] = { 0, };
     string strQuery = "";
-    memcpy(buffer, Packet, sizeof(Packet));
+    memcpy(Packet, buffer, sizeof(Packet));
     MessageHeader MsgHead = { 0, };
     memcpy(&MsgHead, Packet, sizeof(MsgHead));
 
@@ -62,6 +62,10 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
     {
         case EMessageID::C2S_REQ_INSERT_PLAYER:
         {
+            /*------------------------------------------------------
+            회원ID가 DB에 있는지 확인하고, 없으면 INSERT하고 Null반환, 
+            있으면 회원ID 반환
+            ------------------------------------------------------*/
             MessageReqInsertPlayer ReqMsg = { 0, };
             memcpy(&ReqMsg, Packet, sizeof(MessageReqInsertPlayer));
 
@@ -76,7 +80,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 OUT_PLAYER_ID = DB_RS->getString("PLAYER_ID").asStdString();
             }
 
-            if (OUT_PLAYER_ID != "")
+            if (OUT_PLAYER_ID == "")
             {
                 strQuery = "INSERT INTO PLAYER(PLAYER_ID,PLAYER_PWD,PLAYER_NAME)VALUES(?,?,?)";
                 DB_PSTMT = DB_CONN->prepareStatement(strQuery);
@@ -193,7 +197,7 @@ int main(int argc, char* argv[])
         exit(-4);
     };
 
-    cout << "[SYS] Server Started!" << endl;
+    cout << "[SYS] Server Socket ["<<NET_SERVERSOCKET<<"] Listen Started!" << endl;
     while (G_ProgramRunning)
     {
         SOCKADDR_IN ClientAddr = { 0, };
