@@ -137,6 +137,7 @@ unsigned WINAPI ThreadProcessClientSocket(void* arg)
         EnterCriticalSection(&CS_NET_CLIENTLIST);
         NET_CLIENTLIST.erase(find(NET_CLIENTLIST.begin(), NET_CLIENTLIST.end(), ClientSocket));
         closesocket(ClientSocket);
+        cout << "[SYS] Socket [" << ClientSocket << "] DisConnected!" << endl;
         for (auto itr = NET_CLIENTLIST.begin(); itr !=  NET_CLIENTLIST.end(); ++itr)
         {
             msgHead.ReceiverSocketID = (int)(*itr);
