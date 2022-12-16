@@ -33,6 +33,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 OUT_PLAYER_ID = DB_RS->getString("PLAYER_ID").asStdString();
             }
 
+            int UpdateRows = 0;
             if (OUT_PLAYER_ID == "")
             {
                 strQuery = "INSERT INTO PLAYER(PLAYER_ID,PLAYER_PWD,PLAYER_NAME)VALUES(?,?,?)";
@@ -40,7 +41,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 DB_PSTMT->setString(1, ReqMsg.PLAYER_ID);
                 DB_PSTMT->setString(2, ReqMsg.PLAYER_NAME);
                 DB_PSTMT->setString(3, ReqMsg.PLAYER_PWD);
-                DB_PSTMT->execute();
+                UpdateRows = DB_PSTMT->executeUpdate() >= 1 ? (int)EProcessFlag::PROCESS_OK : (int)EProcessFlag::PROCESS_FAIL;
             }
 
             MessageResInsertPlayer ResMsg = { 0, };
@@ -48,7 +49,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
             ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
             ResMsg.MsgHead.MessageSize = sizeof(MessageResInsertPlayer);
-            memcpy(ResMsg.PLAYER_ID, OUT_PLAYER_ID.c_str(), OUT_PLAYER_ID.length());
+            ResMsg.PROCESS_FLAG = UpdateRows;
             retval = send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
@@ -393,7 +394,19 @@ int main(int argc, char* argv[])
     InitializeCriticalSection(&CS_NETWORK_HANDLER);
     InitializeCriticalSection(&CS_THREAD_HANDLER);
     InitializeCriticalSection(&CS_THREAD_HANDLER);
-    
+
+    try
+    {
+        DB_DRIVER = get_driver_instance();
+        DB_CONN = DB_DRIVER->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
+        DB_CONN->setSchema(DB_DBNAME);
+    }
+    catch (sql::SQLException e)
+    {
+        cout << "[ERR] SQLConnection Error Occurred. ErrorMsg : " << e.what() << endl;
+        exit(-100);
+    }
+
     if (WSAStartup(MAKEWORD(2, 2), &NET_WSADATA) != 0)
     {
         cout << "[ERR] WSAStartup Error Occurred. ErrorCode : " << GetLastError() << endl;

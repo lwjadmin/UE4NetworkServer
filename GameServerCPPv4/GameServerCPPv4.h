@@ -37,9 +37,9 @@ CRITICAL_SECTION             CS_NETWORK_HANDLER;
 std::map<SOCKET, HANDLE>     THREAD_POOL;
 CRITICAL_SECTION             CS_THREAD_HANDLER;
 //--DBMS----------------------------------------------------------------------
-const std::string            DB_SERVERNAME        = "tcp://127.0.0.1:3306";
-const std::string            DB_USERNAME          = "root";
-const std::string            DB_PASSWORD          = "Passw0rd";
+const std::string            DB_SERVERNAME        = "tcp://127.0.0.1:3306"; /*172.16.2.146:3306*/
+const std::string            DB_USERNAME          = "root"; /*AnimalGuysAdmin*/
+const std::string            DB_PASSWORD          = "Passw0rd"; /*Passw0rd*/
 const std::string            DB_DBNAME            = "ANIMALGUYS";
 sql::Driver*                 DB_DRIVER            = nullptr;
 sql::Connection*             DB_CONN              = nullptr;

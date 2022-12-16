@@ -47,7 +47,7 @@ struct MessageReqInsertPlayer
 struct MessageResInsertPlayer
 {
     MessageHeader MsgHead;
-    char PLAYER_ID[30];
+    int PROCESS_FLAG;
 };
 
 struct MessageReqLoginPlayer
