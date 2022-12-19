@@ -1,13 +1,66 @@
-﻿#include "GameServerCPPv4.h"
-
+﻿//--Define--------------------------------------------------------------------
+//#define _MICRO_TEST_ENABLED
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+//--C Header------------------------------------------------------------------
+#include <WinSock2.h> 
+#include <Windows.h>
+#include <process.h>
+//--C++ Header----------------------------------------------------------------
+#include <iostream>
+#include <vector>
+#include <map>
+#include <memory>
+#include <string>
+//--Custom Header-------------------------------------------------------------
+#include "StringHelper.h"
+#include "MessagePacket.h"
+#include "ClientData.h"
+//--Plugin Header-------------------------------------------------------------
+#include "jdbc/mysql_connection.h"
+#include "jdbc/cppconn/driver.h"
+#include "jdbc/cppconn/exception.h"
+#include "jdbc/cppconn/prepared_statement.h"
+//--Plugin Library------------------------------------------------------------
+#pragma comment (lib, "WS2_32.lib")
+#pragma comment (lib, "debug/mysqlcppconn.lib")
+//--Network-------------------------------------------------------------------
+WSAData                      NET_WSADATA = { 0, };
+SOCKET                       NET_SERVERSOCKET = NULL;
+SOCKADDR_IN                  NET_SERVERADDR = { 0, };
+const char*                  NET_SERVER_IPV4 = "127.0.0.1";
+const int                    NET_SERVER_PORT = 5001;
+const int                    NET_PACKET_SIZE = 512;
+std::map<SOCKET, ClientData> CLIENT_POOL;
+CRITICAL_SECTION             CS_NETWORK_HANDLER;
+//--Thread--------------------------------------------------------------------       
+std::map<SOCKET, HANDLE>     THREAD_POOL;
+CRITICAL_SECTION             CS_THREAD_HANDLER;
+//--DBMS----------------------------------------------------------------------
+const std::string            DB_SERVERNAME = "tcp://127.0.0.1:3306"; /*172.16.2.146:3306*/
+const std::string            DB_USERNAME = "root"; /*AnimalGuysAdmin*/
+const std::string            DB_PASSWORD = "Passw0rd"; /*Passw0rd*/
+const std::string            DB_DBNAME = "ANIMALGUYS";
+sql::Driver*                 DB_DRIVER = nullptr;
+sql::Connection*             DB_CONN = nullptr;
+sql::Statement*              DB_STMT = nullptr;
+sql::PreparedStatement*      DB_PSTMT = nullptr;
+sql::ResultSet*              DB_RS = nullptr;
+CRITICAL_SECTION             CS_DB_HANDLER;
+//--MainProgram---------------------------------------------------------------
+bool                         G_PROGRAMRUNNING = true;
 
 using namespace std;
 
 int ProcessPacket(SOCKET ClientSocket, char* buffer)
 {
-    int retval = 0;
-    char Packet[NET_PACKET_SIZE] = { 0, };
+    int retval = 1;
+    sql::Driver* sqlDriver = get_driver_instance();
+    sql::Connection* sqlConn = nullptr;
+    sql::PreparedStatement* sqlPstmt = nullptr;
+    sql::ResultSet* sqlRs = nullptr;
+    
     string strQuery = "";
+    char Packet[NET_PACKET_SIZE] = { 0, };
     memcpy(Packet, buffer, sizeof(Packet));
     MessageHeader MsgHead = { 0, };
     memcpy(&MsgHead, Packet, sizeof(MsgHead));
@@ -16,40 +69,71 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
     {
         case EMessageID::C2S_REQ_INSERT_PLAYER:
         {
-            /*------------------------------------------------------
-            회원ID가 DB에 있는지 확인하고, 없으면 INSERT하고 Null반환, 
-            있으면 회원ID 반환
-            ------------------------------------------------------*/
             MessageReqInsertPlayer ReqMsg = { 0, };
             memcpy(&ReqMsg, Packet, sizeof(MessageReqInsertPlayer));
-            strQuery = "SELECT PLAYER_ID FROM PLAYER WHERE PLAYER_ID = ? LIMIT 1";
-            DB_PSTMT = DB_CONN->prepareStatement(strQuery);
-            DB_PSTMT->setString(1, ReqMsg.PLAYER_ID);
-            DB_RS = DB_PSTMT->executeQuery();
-
-            string OUT_PLAYER_ID = "";
-            while (DB_RS->next())
-            {
-                OUT_PLAYER_ID = DB_RS->getString("PLAYER_ID").asStdString();
-            }
-
             int UpdateRows = 0;
-            if (OUT_PLAYER_ID == "")
-            {
-                strQuery = "INSERT INTO PLAYER(PLAYER_ID,PLAYER_PWD,PLAYER_NAME)VALUES(?,?,?)";
-                DB_PSTMT = DB_CONN->prepareStatement(strQuery);
-                DB_PSTMT->setString(1, ReqMsg.PLAYER_ID);
-                DB_PSTMT->setString(2, ReqMsg.PLAYER_NAME);
-                DB_PSTMT->setString(3, ReqMsg.PLAYER_PWD);
-                UpdateRows = DB_PSTMT->executeUpdate() >= 1 ? (int)EProcessFlag::PROCESS_OK : (int)EProcessFlag::PROCESS_FAIL;
-            }
 
+            try
+            {
+                sqlConn = sqlDriver->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
+                sqlConn->setSchema(DB_DBNAME);
+
+                strQuery = "SELECT 1 FROM PLAYER WHERE PLAYER_ID = ? LIMIT 1";
+                sqlPstmt = sqlConn->prepareStatement(strQuery);
+                sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
+                sqlRs = sqlPstmt->executeQuery();
+
+                //없으면 INSERT, Creation Success!
+                if (sqlRs && sqlRs->next() == false)
+                {
+                    strQuery = "INSERT INTO PLAYER(PLAYER_ID,PLAYER_PWD,PLAYER_NAME)VALUES(?,?,?)";
+                    sqlPstmt = sqlConn->prepareStatement(strQuery);
+                    sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
+                    sqlPstmt->setString(2, ReqMsg.PLAYER_PWD);
+                    sqlPstmt->setString(3, ReqMsg.PLAYER_NAME);
+                    UpdateRows += sqlPstmt->executeUpdate();
+
+                    strQuery = "INSERT INTO PLAYERSTATE(         \
+                                    PLAYER_ID,                   \
+                                    PLAYER_GOLD,                 \
+                                    PLAYER_EXP,                  \
+                                    PLAYER_LEVEL,                \
+                                    PLAYERCHAR_TYPE,             \
+                                    PLAYERCHAR_BODY_SLOT,        \
+                                    PLAYERCHAR_HEAD_SLOT,        \
+                                    PLAYERCHAR_JUMP_STAT,        \
+                                    PLAYERCHAR_STAMINA_STAT,     \
+                                    PLAYERCHAR_SPEED_STAT,       \
+                                    REGISTER_DTTM                \
+                                )VALUES(                         \
+                                    ?,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    0,                           \
+                                    NOW()                        \
+                                )";
+                    strQuery = string_ReplaceNSpaceTo1Space(strQuery);
+                    sqlPstmt = sqlConn->prepareStatement(strQuery);
+                    sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
+                    UpdateRows += sqlPstmt->executeUpdate();
+                }
+            }
+            catch (sql::SQLException ex)
+            {
+                std::cout << "[ERR] SQL Error On C2S_REQ_INSERT_PLAYER. ErrorMsg : " << ex.what() << std::endl;
+            }
             MessageResInsertPlayer ResMsg = { 0, };
             ResMsg.MsgHead.MessageID = (int)EMessageID::S2C_RES_INSERT_PLAYER;
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
             ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
             ResMsg.MsgHead.MessageSize = sizeof(MessageResInsertPlayer);
-            ResMsg.PROCESS_FLAG = UpdateRows;
+            ResMsg.PROCESS_FLAG = UpdateRows >= 2 ? (int)EProcessFlag::PROCESS_OK : (int)EProcessFlag::PROCESS_FAIL;
             retval = send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
@@ -57,58 +141,65 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
         {
             MessageReqLoginPlayer ReqMsg = { 0, };
             memcpy(&ReqMsg, Packet, sizeof(MessageReqLoginPlayer));
-            strQuery = "SELECT                               \
-                            PLA.PLAYER_ID,                   \
-                            PLA.PLAYER_PWD,                  \
-                            PLA.PLAYER_NAME,                 \
-                            PLS.PLAYER_GOLD,                 \
-                            PLS.PLAYER_EXP,                  \
-                            PLS.PLAYER_LEVEL,                \
-                            PLS.PLAYERCHAR_TYPE,             \
-                            PLS.PLAYERCHAR_BODY_SLOT,        \
-                            PLS.PLAYERCHAR_HEAD_SLOT,        \
-                            PLS.PLAYERCHAR_JUMP_STAT,        \
-                            PLS.PLAYERCHAR_STAMINA_STAT,     \
-                            PLS.PLAYERCHAR_SPEED_STAT        \
-                        FROM PLAYER AS PLA                   \
-                            INNER JOIN PLAYERSTATE AS PLS    \
-                            ON PLA.PLAYER_ID = PLS.PLAYER_ID \
-                        WHERE                                \
-                            PLA.PLAYER_ID  = ? AND           \
-                            PLA.PLAYER_PWD = ?               ";
-            strQuery = string_ReplaceNSpaceTo1Space(strQuery);
-            DB_PSTMT = DB_CONN->prepareStatement(strQuery);
-            DB_PSTMT->setString(1, string(ReqMsg.PLAYER_ID));
-            DB_PSTMT->setString(2, string(ReqMsg.PLAYER_PWD));
-            DB_RS = DB_PSTMT->executeQuery();
-
+            int UpdateRows = 0;
             MessageResLoginPlayer ResMsg = { 0, };
-            bool isExists = false;
-            while (DB_RS->next())
+            try
             {
-                string rsPlayerID = DB_RS->getString("PLAYER_ID").asStdString();
-                memcpy(ResMsg.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
-                string rsPlayerPWD = DB_RS->getString("PLAYER_PWD").asStdString();
-                memcpy(ResMsg.PLAYER_PWD, rsPlayerPWD.c_str(), rsPlayerPWD.length());
-                string rsPlayerName = DB_RS->getString("PLAYER_NAME").asStdString();
-                memcpy(ResMsg.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
-                ResMsg.PLAYER_GOLD = DB_RS->getInt("PLAYER_GOLD");
-                ResMsg.PLAYER_EXP = DB_RS->getInt("PLAYER_EXP");
-                ResMsg.PLAYER_LEVEL = DB_RS->getInt("PLAYER_LEVEL");
-                ResMsg.PLAYERCHAR_TYPE = DB_RS->getInt("PLAYERCHAR_TYPE");
-                ResMsg.PLAYERCHAR_BODY_SLOT = DB_RS->getInt("PLAYERCHAR_BODY_SLOT");
-                ResMsg.PLAYERCHAR_HEAD_SLOT = DB_RS->getInt("PLAYERCHAR_HEAD_SLOT");
-                ResMsg.PLAYERCHAR_JUMP_STAT = DB_RS->getInt("PLAYERCHAR_JUMP_STAT");
-                ResMsg.PLAYERCHAR_STAMINA_STAT = DB_RS->getInt("PLAYERCHAR_STAMINA_STAT");
-                ResMsg.PLAYERCHAR_SPEED_STAT = DB_RS->getInt("PLAYERCHAR_SPEED_STAT");
-                isExists = true;
+                sqlConn = sqlDriver->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
+                sqlConn->setSchema(DB_DBNAME);
+                strQuery = "SELECT                               \
+                                PLA.PLAYER_ID,                   \
+                                PLA.PLAYER_PWD,                  \
+                                PLA.PLAYER_NAME,                 \
+                                PLS.PLAYER_GOLD,                 \
+                                PLS.PLAYER_EXP,                  \
+                                PLS.PLAYER_LEVEL,                \
+                                PLS.PLAYERCHAR_TYPE,             \
+                                PLS.PLAYERCHAR_BODY_SLOT,        \
+                                PLS.PLAYERCHAR_HEAD_SLOT,        \
+                                PLS.PLAYERCHAR_JUMP_STAT,        \
+                                PLS.PLAYERCHAR_STAMINA_STAT,     \
+                                PLS.PLAYERCHAR_SPEED_STAT        \
+                            FROM PLAYER AS PLA                   \
+                                INNER JOIN PLAYERSTATE AS PLS    \
+                                ON PLA.PLAYER_ID = PLS.PLAYER_ID \
+                            WHERE                                \
+                                PLA.PLAYER_ID  = ? AND           \
+                                PLA.PLAYER_PWD = ?               \
+                            LIMIT 1";
+                strQuery = string_ReplaceNSpaceTo1Space(strQuery);
+                sqlPstmt = sqlConn->prepareStatement(strQuery);
+                sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
+                sqlPstmt->setString(2, ReqMsg.PLAYER_PWD);
+                sqlRs = sqlPstmt->executeQuery();
+
+                if(sqlRs && sqlRs->next())
+                {
+                    string rsPlayerID = sqlRs->getString("PLAYER_ID").asStdString();
+                    memcpy(ResMsg.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
+                    string rsPlayerPWD = sqlRs->getString("PLAYER_PWD").asStdString();
+                    memcpy(ResMsg.PLAYER_PWD, rsPlayerPWD.c_str(), rsPlayerPWD.length());
+                    string rsPlayerName = sqlRs->getString("PLAYER_NAME").asStdString();
+                    memcpy(ResMsg.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
+                    ResMsg.PLAYER_GOLD = sqlRs->getInt("PLAYER_GOLD");
+                    ResMsg.PLAYER_EXP = sqlRs->getInt("PLAYER_EXP");
+                    ResMsg.PLAYER_LEVEL = sqlRs->getInt("PLAYER_LEVEL");
+                    ResMsg.PLAYERCHAR_TYPE = sqlRs->getInt("PLAYERCHAR_TYPE");
+                    ResMsg.PLAYERCHAR_BODY_SLOT = sqlRs->getInt("PLAYERCHAR_BODY_SLOT");
+                    ResMsg.PLAYERCHAR_HEAD_SLOT = sqlRs->getInt("PLAYERCHAR_HEAD_SLOT");
+                    ResMsg.PLAYERCHAR_JUMP_STAT = sqlRs->getInt("PLAYERCHAR_JUMP_STAT");
+                    ResMsg.PLAYERCHAR_STAMINA_STAT = sqlRs->getInt("PLAYERCHAR_STAMINA_STAT");
+                    ResMsg.PLAYERCHAR_SPEED_STAT = sqlRs->getInt("PLAYERCHAR_SPEED_STAT");
+
+                    strQuery = "INSERT INTO CURLOGINPLAYER(LOGIN_PLAYER_ID,LOGIN_DTTM,LOGOUT_DTTM,LOGIN_STAT)VALUES(?,NOW(),NULL,1)";
+                    sqlPstmt = sqlConn->prepareStatement(strQuery);
+                    sqlPstmt->setString(1, string(ReqMsg.PLAYER_ID));
+                    UpdateRows = sqlPstmt->executeUpdate();
+                }
             }
-            if (isExists)
+            catch (sql::SQLException ex)
             {
-                strQuery = "INSERT INTO CURLOGINPLAYER(LOGIN_PLAYER_ID,LOGIN_DTTM,LOGOUT_DTTM,LOGIN_STAT)VALUES(?,NOW(),NULL,1)";
-                DB_PSTMT = DB_CONN->prepareStatement(strQuery);
-                DB_PSTMT->setString(1, string(ReqMsg.PLAYER_ID));
-                DB_PSTMT->execute();
+                std::cout << "[ERR] SQL Error On C2S_REQ_LOGIN_PLAYER. ErrorMsg : " << ex.what() << std::endl;
             }
             ResMsg.MsgHead.MessageID = (int)EMessageID::S2C_RES_LOGIN_PLAYER;
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
@@ -121,17 +212,29 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
         {
             MessageReqLogoutPlayer ReqMsg = { 0, };
             memcpy(&ReqMsg, Packet, sizeof(MessageReqLogoutPlayer));
-            strQuery = "UPDATE CURLOGINPLAYER SET    \
-                            LOGOUT_DTTM     = NOW(), \
-                            LOGIN_STAT      = 2      \
-                        WHERE                        \
-                            LOGIN_STAT      = 1 AND  \
-                            LOGIN_PLAYER_ID = ?      ";
-            strQuery = string_ReplaceNSpaceTo1Space(strQuery);
-            DB_PSTMT = DB_CONN->prepareStatement(strQuery);
-            DB_PSTMT->setString(1, string(ReqMsg.PLAYER_ID));
-            int UpdateRows = DB_PSTMT->executeUpdate();
             MessageResLogoutPlayer ResMsg = { 0, };
+            int UpdateRows = 0;
+
+            try
+            {
+                sqlConn = sqlDriver->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
+                sqlConn->setSchema(DB_DBNAME);
+                
+                strQuery = "UPDATE CURLOGINPLAYER SET    \
+                            LOGOUT_DTTM     = NOW(),     \
+                            LOGIN_STAT      = 2          \
+                        WHERE                            \
+                            LOGIN_STAT      = 1 AND      \
+                            LOGIN_PLAYER_ID = ?          ";
+                strQuery = string_ReplaceNSpaceTo1Space(strQuery);
+                sqlPstmt = sqlConn->prepareStatement(strQuery);
+                sqlPstmt->setString(1, string(ReqMsg.PLAYER_ID));
+                UpdateRows = sqlPstmt->executeUpdate();
+            }
+            catch (sql::SQLException ex)
+            {
+                std::cout << "[ERR] SQL Error On C2S_REQ_LOGOUT_PLAYER. ErrorMsg : " << ex.what() << std::endl;
+            }
             ResMsg.MsgHead.MessageID = (int)EMessageID::S2C_RES_LOGOUT_PLAYER;
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
             ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
@@ -283,13 +386,18 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             retval = send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
-        default :
+        default:
         {
-            cout << "[ERR] Invalid Message Format! " << endl;
+            std::cout << "[ERR] Invalid Message Format! " << std::endl;
             retval = 1;
             break;
         }
     }
+
+    if (sqlRs) { sqlRs->close(); }
+    if (sqlPstmt) { sqlPstmt->close(); }
+    if (sqlConn) { sqlConn->close(); }
+
     return retval;
 }
 
@@ -303,7 +411,7 @@ unsigned WINAPI ThreadProcessClientSocket(void* arg)
     int RecvBytes = 0;
     int SendBytes = 0;
     int Retval = 0;
-    
+
     while (G_PROGRAMRUNNING)
     {
         memset(RecvBuffer, 0, sizeof(RecvBuffer));
@@ -328,8 +436,8 @@ unsigned WINAPI ThreadProcessClientSocket(void* arg)
             }
         }
         closesocket(ClientSocket);
-        cout << "[SYS] ClilentSocket [" << ClientSocket << "] DisConnected!" << endl;
-        for (auto itr = CLIENT_POOL.begin(); itr !=  CLIENT_POOL.end(); ++itr)
+        std::cout << "[SYS] ClilentSocket [" << ClientSocket << "] DisConnected!" << std::endl;
+        for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
         {
             msgHead.ReceiverSocketID = (int)itr->first;
             send(itr->first, (char*)&msgHead, msgHead.MessageSize, 0);
@@ -373,11 +481,11 @@ unsigned WINAPI ThreadProcessDatabase(void* arg)
             sqlPstmt = DB_CONN->prepareStatement(sqlQuery);
             sqlPstmt->setString(1, string_format("Thread[%d] : HelloWorld!", ThreadIdx));
             sqlResultRows = sqlPstmt->executeUpdate();
-            cout << string_format("Thread[%d] : InsertRows : [%d]\n", ThreadIdx, sqlResultRows).c_str() << endl;
+            std::cout << string_format("Thread[%d] : InsertRows : [%d]\n", ThreadIdx, sqlResultRows).c_str() << std::endl;
         }
         catch (sql::SQLException e)
         {
-            cout << "[ERR] SQLConnection Error Occurred. ErrorMsg : " << e.what() << endl;
+            std::cout << "[ERR] SQLConnection Error Occurred. ErrorMsg : " << e.what() << std::endl;
         }
         if (sqlPstmt) { sqlPstmt->close(); }
         WaitForSingleObject(ThreadHandle, (1000 / 60));
@@ -391,9 +499,9 @@ int GameServerCPPv4_main(int argc, char* argv[])
 int main(int argc, char* argv[])
 #endif 
 {
+    InitializeCriticalSection(&CS_THREAD_HANDLER);
     InitializeCriticalSection(&CS_NETWORK_HANDLER);
-    InitializeCriticalSection(&CS_THREAD_HANDLER);
-    InitializeCriticalSection(&CS_THREAD_HANDLER);
+    InitializeCriticalSection(&CS_DB_HANDLER);
 
     try
     {
@@ -403,39 +511,39 @@ int main(int argc, char* argv[])
     }
     catch (sql::SQLException e)
     {
-        cout << "[ERR] SQLConnection Error Occurred. ErrorMsg : " << e.what() << endl;
+        std::cout << "[ERR] SQLConnection Error Occurred. ErrorMsg : " << e.what() << std::endl;
         exit(-100);
     }
 
     if (WSAStartup(MAKEWORD(2, 2), &NET_WSADATA) != 0)
     {
-        cout << "[ERR] WSAStartup Error Occurred. ErrorCode : " << GetLastError() << endl;
+        std::cout << "[ERR] WSAStartup Error Occurred. ErrorCode : " << GetLastError() << std::endl;
         exit(-1);
     }
-    
+
     NET_SERVERSOCKET = socket(AF_INET, SOCK_STREAM, 0);
     if (NET_SERVERSOCKET == INVALID_SOCKET)
     {
-        cout << "[ERR] ServerSocket Creation Error Occurred. ErrorCode : " << GetLastError() << endl;
+        std::cout << "[ERR] ServerSocket Creation Error Occurred. ErrorCode : " << GetLastError() << std::endl;
         exit(-2);
     }
-    
+
     NET_SERVERADDR.sin_family = AF_INET; // IPV4
     NET_SERVERADDR.sin_addr.S_un.S_addr = inet_addr(NET_SERVER_IPV4);
     NET_SERVERADDR.sin_port = htons(NET_SERVER_PORT);
     if (::bind(NET_SERVERSOCKET, (SOCKADDR*)&NET_SERVERADDR, sizeof(NET_SERVERADDR)) != 0)
     {
-        cout << "[ERR] ServerSocket Bind Error Occurred. ErrorCode : " << GetLastError() << endl;
+        std::cout << "[ERR] ServerSocket Bind Error Occurred. ErrorCode : " << GetLastError() << std::endl;
         exit(-3);
     };
-    
+
     if (listen(NET_SERVERSOCKET, SOMAXCONN) == SOCKET_ERROR)
     {
-        cout << "[ERR] ServerSocket Listen Error Occurred. ErrorCode : " << GetLastError() << endl;
+        std::cout << "[ERR] ServerSocket Listen Error Occurred. ErrorCode : " << GetLastError() << std::endl;
         exit(-4);
     };
-    
-    cout << "[SYS] ServerSocket [" << NET_SERVERSOCKET << "] Listen Started!" << endl;
+
+    std::cout << "[SYS] ServerSocket [" << NET_SERVERSOCKET << "] Listen Started!" << std::endl;
     while (G_PROGRAMRUNNING)
     {
         SOCKADDR_IN ClientAddr = { 0, };
@@ -448,7 +556,7 @@ int main(int argc, char* argv[])
         }
         EnterCriticalSection(&CS_NETWORK_HANDLER);
         CLIENT_POOL[ClientSocket] = ClientData(ClientSocket);
-        cout << "[SYS] ClientSocket [" << ClientSocket << "] Connected!" << endl;
+        std::cout << "[SYS] ClientSocket [" << ClientSocket << "] Connected!" << std::endl;
         MessageHeader msgHead = { 0, };
         msgHead.MessageID = (int)EMessageID::S2C_RES_CLINET_CONNECT;
         msgHead.MessageSize = sizeof(MessageHeader);
@@ -460,7 +568,7 @@ int main(int argc, char* argv[])
         THREAD_POOL[ClientSocket] = ((HANDLE)_beginthreadex(nullptr, 0, ThreadProcessClientSocket, (void*)&ClientSocket, 0, nullptr));
         LeaveCriticalSection(&CS_THREAD_HANDLER);
     }
-    cout << "[SYS] ServerSocket [" << NET_SERVERSOCKET << "] Listen Finished!" << endl;
+    std::cout << "[SYS] ServerSocket [" << NET_SERVERSOCKET << "] Listen Finished!" << std::endl;
     closesocket(NET_SERVERSOCKET);
     EnterCriticalSection(&CS_THREAD_HANDLER);
     for (auto itr = THREAD_POOL.begin(); itr != THREAD_POOL.end(); ++itr)
@@ -469,11 +577,11 @@ int main(int argc, char* argv[])
         CloseHandle(itr->second);
     }
     LeaveCriticalSection(&CS_THREAD_HANDLER);
-    
+
     DeleteCriticalSection(&CS_THREAD_HANDLER);
     DeleteCriticalSection(&CS_NETWORK_HANDLER);
     DeleteCriticalSection(&CS_DB_HANDLER);
-    
+
     WSACleanup();
     DB_CONN->close();
     return 0;
@@ -482,7 +590,7 @@ int main(int argc, char* argv[])
 #ifdef _MICRO_TEST_ENABLED
 int main(int argc, char* argv[])
 #else
-int MicroTest_main(int argc, char* argv[])  
+int MicroTest_main(int argc, char* argv[])
 #endif 
 {
     InitializeCriticalSection(&CS_DB_HANDLER);
@@ -490,7 +598,7 @@ int MicroTest_main(int argc, char* argv[])
     DB_CONN = DB_DRIVER->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
     DB_CONN->setSchema(DB_DBNAME);
     string strCommand = "";
-    int iList[100] = {0,};
+    int iList[100] = { 0, };
     for (int i = 0; i < 100; i++)
     {
         /*------------------------------------------------------------------------
@@ -503,10 +611,10 @@ int MicroTest_main(int argc, char* argv[])
         iList[i] = i;
         THREAD_POOL[i] = ((HANDLE)_beginthreadex(nullptr, 0, ThreadProcessDatabase, (void*)&iList[i], 0, nullptr));
     }
-    cout << "[SYS] All Threads(100) Started!" << endl;
+    std::cout << "[SYS] All Threads(100) Started!" << std::endl;
     while (G_PROGRAMRUNNING)
     {
-        getline(cin, strCommand);
+        std::getline(std::cin, strCommand);
         if (strCommand == "q")
         {
             G_PROGRAMRUNNING = false;

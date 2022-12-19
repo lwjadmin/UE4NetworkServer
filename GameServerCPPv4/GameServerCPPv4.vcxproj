@@ -132,7 +132,6 @@
     <ClCompile Include="GameServerCPPv4.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="GameServerCPPv4.h" />
     <ClInclude Include="MessagePacket.h" />
     <ClInclude Include="ClientData.h" />
     <ClInclude Include="StringHelper.h" />
