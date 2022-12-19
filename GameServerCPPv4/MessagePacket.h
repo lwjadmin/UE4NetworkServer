@@ -9,6 +9,7 @@ enum class EMessageID : int
     C2S_REQ_INSERT_SESSIONCHATTINGLOG        = 11004,    //클라이언트_서버 세션채팅 요청 메시지
     C2S_REQ_CREATE_SESSION                   = 11005,    //클라이언트_서버 세션생성 요청 메시지
     C2S_REQ_UPDATE_PLAYERSTATE               = 11006,    //클라이언트_서버 플레이어 상태수정 요청 메시지
+    C2S_REQ_UPDATE_PLAYERSTATE_REWARD        = 11007,    //클라이언트_서버 플레이어 상태수정(게임보상) 요청 메시지
 
     S2C_RES_CLINET_CONNECT                   = 20001,    //서버_클라이언트 연결 응답 메시지
     S2C_RES_CLINET_DISCONNET                 = 20002,    //서버_클라이언트 연결해제 응답 메시지
@@ -19,6 +20,7 @@ enum class EMessageID : int
     S2C_RES_INSERT_SESSIONCHATTINGLOG        = 21004,    //서버_클라이언트 세션채팅 응답 메시지
     S2C_RES_CREATE_SESSION                   = 21005,    //서버_클라이언트 세션생성 응답 메시지
     S2C_RES_UPDATE_PLAYERSTATE               = 21006,    //서버_클라이언트 플레이어 상태수정 응답 메시지
+    S2C_RES_UPDATE_PLAYERSTATE_REWARD        = 21007,    //클라이언트_서버 플레이어 상태수정(게임보상) 응답 메시지
 };
 
 enum class EProcessFlag : int
@@ -92,6 +94,8 @@ struct MessageResLogoutPlayer
 struct MessageReqSessionChattingLog
 {
     MessageHeader MsgHead;
+    int CHATCHANNEL_TYPE;
+    int SESSION_ID;
     char PLAYER_ID[30];
     char PLAYER_NAME[30];
     char CHAT_MSG[100];
@@ -100,6 +104,8 @@ struct MessageReqSessionChattingLog
 struct MessageResSessionChattingLog
 {
     MessageHeader MsgHead;
+    int CHATCHANNEL_TYPE;
+    int SESSION_ID;
     char PLAYER_ID[30];
     char PLAYER_NAME[30];
     char CHAT_MSG[100];
@@ -144,4 +150,20 @@ struct MessageResUpdatePlayerState
 {
     MessageHeader MsgHead;
     int PROCESS_FLAG;
+};
+
+struct MessageReqUpdatePlayerStateReward
+{
+    MessageHeader MsgHead;
+    char PLAYER_ID[30];
+    int REWARD_PLAYER_GOLD;
+    int REWARD_PLAYER_EXP;
+};
+
+struct MessageResUpdatePlayerStateReward
+{
+    MessageHeader MsgHead;
+    char PLAYER_ID[30];
+    int UPDATED_PLAYER_GOLD;
+    int UPDATED_PLAYER_EXP;
 };
