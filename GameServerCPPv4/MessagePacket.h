@@ -30,6 +30,8 @@ enum class EProcessFlag : int
     PROCESS_FAIL = 2   //처리실패
 };
 
+#pragma pack(1)
+
 struct MessageHeader
 {
     int MessageID;
@@ -167,3 +169,5 @@ struct MessageResUpdatePlayerStateReward
     int UPDATED_PLAYER_GOLD;
     int UPDATED_PLAYER_EXP;
 };
+
+#pragma pack(pop)
