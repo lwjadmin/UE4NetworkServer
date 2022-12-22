@@ -30,7 +30,7 @@ enum class EProcessFlag : int
     PROCESS_FAIL = 2   //처리실패
 };
 
-#pragma pack(1)
+#pragma pack(push,1)
 
 struct MessageHeader
 {
@@ -89,6 +89,7 @@ struct MessageReqLogoutPlayer
 struct MessageResLogoutPlayer
 {
     MessageHeader MsgHead;
+    char LOGOUT_PLAYER_ID[30];
     int PROCESS_FLAG;        
 };
 
@@ -120,6 +121,7 @@ struct MessageReqCreateSession
     char HOST_PLAYER_NAME[30];
     char SESSION_NAME[30];
     char SESSION_PASSWORD[30];
+    char SESSION_MAPNAME[30];
     int SESSION_PLAYER;
 };
 
@@ -131,6 +133,7 @@ struct MessageResCreateSession
     char HOST_PLAYER_NAME[30];
     char SESSION_NAME[30];
     char SESSION_PASSWORD[30];
+    char SESSION_MAPNAME[30];
     int SESSION_PLAYER;
     int SESSION_STATE;
 };
