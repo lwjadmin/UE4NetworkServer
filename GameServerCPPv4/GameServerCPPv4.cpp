@@ -145,7 +145,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
         {
             MessageReqLoginPlayer ReqMsg = { 0, };
             MessageResLoginPlayer ResMsg = { 0, };
-            MessageResLoginPlayer ResMsgForOthers = { 0, };
+            //MessageResLoginPlayer ResMsgForOthers = { 0, };
             memcpy(&ReqMsg, Packet, sizeof(MessageReqLoginPlayer));
             bool bLoginSuccess = false;
             try
@@ -185,14 +185,14 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                     //해당 ID가 존재하고, 스탯정보도 존재할 경우 
                     string rsPlayerID = sqlRs->getString("PLAYER_ID").asStdString();
                     memcpy(ResMsg.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
-                    memcpy(ResMsgForOthers.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
+                    //memcpy(ResMsgForOthers.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
 
                     string rsPlayerPWD = sqlRs->getString("PLAYER_PWD").asStdString();
                     memcpy(ResMsg.PLAYER_PWD, rsPlayerPWD.c_str(), rsPlayerPWD.length());
 
                     string rsPlayerName = sqlRs->getString("PLAYER_NAME").asStdString();
                     memcpy(ResMsg.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
-                    memcpy(ResMsgForOthers.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
+                    //memcpy(ResMsgForOthers.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
 
                     ResMsg.PLAYER_GOLD = sqlRs->getInt("PLAYER_GOLD");
                     ResMsg.PLAYER_EXP = sqlRs->getInt("PLAYER_EXP");
@@ -228,38 +228,38 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
             ResMsg.MsgHead.MessageSize = sizeof(MessageResLoginPlayer);
 
-            ResMsgForOthers.MsgHead.MessageID = (int)EMessageID::S2C_RES_LOGIN_PLAYER;
-            ResMsgForOthers.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
-            ResMsgForOthers.MsgHead.MessageSize = sizeof(MessageResLoginPlayer);
+            //ResMsgForOthers.MsgHead.MessageID = (int)EMessageID::S2C_RES_LOGIN_PLAYER;
+            //ResMsgForOthers.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
+            //ResMsgForOthers.MsgHead.MessageSize = sizeof(MessageResLoginPlayer);
 
-            if (bLoginSuccess)
-            {
-                //로그인이 성공했을 경우
-                EnterCriticalSection(&CS_NETWORK_HANDLER);
-                for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
-                {
-                    ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
-                    if (itr->first == ClientSocket)
-                    {
-                        //로그인이 성공한 자신에게는 Full Information을 전송
-                        retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
-                    }
-                    else
-                    {
-                        //다른 사람에게는 PlayerID, PlayerName만 전송 (~~~가 로그인하였습니다.를 처리하기 위함)
-                        retval += send(itr->first, (char*)&ResMsgForOthers, ResMsgForOthers.MsgHead.MessageSize, 0);
-                    }
-                }
-                LeaveCriticalSection(&CS_NETWORK_HANDLER);
-            }
-            else
-            {
-                //로그인이 실패했을 경우, PlayerID 등의 정보가 공란('')인 데이터를 전송
-                ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
-                retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
-            }
-            //ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
-            //retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //if (bLoginSuccess)
+            //{
+            //    //로그인이 성공했을 경우
+            //    EnterCriticalSection(&CS_NETWORK_HANDLER);
+            //    for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
+            //    {
+            //        ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
+            //        if (itr->first == ClientSocket)
+            //        {
+            //            //로그인이 성공한 자신에게는 Full Information을 전송
+            //            retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //        }
+            //        else
+            //        {
+            //            //다른 사람에게는 PlayerID, PlayerName만 전송 (~~~가 로그인하였습니다.를 처리하기 위함)
+            //            retval += send(itr->first, (char*)&ResMsgForOthers, ResMsgForOthers.MsgHead.MessageSize, 0);
+            //        }
+            //    }
+            //    LeaveCriticalSection(&CS_NETWORK_HANDLER);
+            //}
+            //else
+            //{
+            //    //로그인이 실패했을 경우, PlayerID 등의 정보가 공란('')인 데이터를 전송
+            //    ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
+            //    retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //}
+            ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
+            retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
         case EMessageID::C2S_REQ_LOGOUT_PLAYER:
@@ -303,15 +303,15 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             memcpy(ResMsg.LOGOUT_PLAYER_ID, ReqMsg.PLAYER_ID, sizeof(ReqMsg.PLAYER_ID));
             ResMsg.PROCESS_FLAG = updatedRows >= 1 ? (int)EProcessFlag::PROCESS_OK : (int)EProcessFlag::PROCESS_FAIL;
 
-            EnterCriticalSection(&CS_NETWORK_HANDLER);
-            for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
-            {
-                ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
-                retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
-            }
-            LeaveCriticalSection(&CS_NETWORK_HANDLER);
-            //ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
-            //retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //EnterCriticalSection(&CS_NETWORK_HANDLER);
+            //for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
+            //{
+            //    ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
+            //    retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //}
+            //LeaveCriticalSection(&CS_NETWORK_HANDLER);
+            ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
+            retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
         case EMessageID::C2S_REQ_INSERT_SESSIONCHATTINGLOG:
