@@ -429,14 +429,16 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             memcpy(ResMsg.SESSION_MAPNAME, ReqMsg.SESSION_MAPNAME, sizeof(ReqMsg.SESSION_MAPNAME));
             ResMsg.SESSION_PLAYER = ReqMsg.SESSION_PLAYER;
 
+            //EnterCriticalSection(&CS_NETWORK_HANDLER);
+            //for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
+            //{
+            //    ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
+            //    retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            //}
+            //LeaveCriticalSection(&CS_NETWORK_HANDLER);
 
-            EnterCriticalSection(&CS_NETWORK_HANDLER);
-            for (auto itr = CLIENT_POOL.begin(); itr != CLIENT_POOL.end(); ++itr)
-            {
-                ResMsg.MsgHead.ReceiverSocketID = (int)itr->first;
-                retval += send(itr->first, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
-            }
-            LeaveCriticalSection(&CS_NETWORK_HANDLER);
+            ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
+            retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }
         case EMessageID::C2S_REQ_UPDATE_PLAYERSTATE:
