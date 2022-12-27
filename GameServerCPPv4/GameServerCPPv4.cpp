@@ -326,7 +326,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 //채팅로그 DB저장
                 sqlQuery = "INSERT INTO CHATTINGLOG    \
                             (                          \
-                                PLAYER_ID,             \
+                                   PLAYER_ID,             \
                                 CHATCHANNEL_TYPE,      \
                                 SESSION_ID,            \
                                 CHAT_MSG,              \
@@ -496,16 +496,18 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 sqlQuery = "UPDATE PLAYERSTATE SET              \
                                 PLAYER_GOLD = PLAYER_GOLD + ?,  \
                                 PLAYER_EXP = PLAYER_EXP + ?,    \
+                                PLAYER_LEVEL = PLAYER_LEVEL + ?,\
                                 REGISTER_DTTM = NOW()           \
                             WHERE PLAYER_ID = ?                 ";
                 sqlQuery = string_ReplaceNSpaceTo1Space(sqlQuery);
                 sqlPstmt = sqlConn->prepareStatement(sqlQuery);
-                sqlPstmt->setInt(1, ReqMsg.REWARD_PLAYER_GOLD);
-                sqlPstmt->setInt(2, ReqMsg.REWARD_PLAYER_EXP);
-                sqlPstmt->setString(3, ReqMsg.PLAYER_ID);
+                sqlPstmt->setInt(1, ReqMsg.EARN_PLAYER_GOLD);
+                sqlPstmt->setInt(2, ReqMsg.EARN_PLAYER_EXP);
+                sqlPstmt->setInt(3, ReqMsg.EARN_PLAYER_LEVEL);
+                sqlPstmt->setString(4, ReqMsg.PLAYER_ID);
                 updatedRows += sqlPstmt->executeUpdate();
                 //업데이트된 골드와 경험치를 가져온다.
-                sqlQuery = "SELECT PLAYER_GOLD, PLAYER_EXP FROM PLAYERSTATE WHERE PLAYER_ID = ? LIMIT 1";
+                sqlQuery = "SELECT PLAYER_GOLD, PLAYER_EXP, PLAYER_LEVEL FROM PLAYERSTATE WHERE PLAYER_ID = ? LIMIT 1";
                 sqlPstmt = sqlConn->prepareStatement(sqlQuery);
                 sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
                 sqlRs = sqlPstmt->executeQuery();
@@ -513,6 +515,7 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
                 {
                     ResMsg.UPDATED_PLAYER_GOLD = sqlRs->getInt("PLAYER_GOLD");
                     ResMsg.UPDATED_PLAYER_EXP = sqlRs->getInt("PLAYER_EXP");
+                    ResMsg.UPDATED_PLAYER_LEVEL = sqlRs->getInt("PLAYER_LEVEL");
                 }
             }
             catch (sql::SQLException ex)
@@ -523,6 +526,72 @@ int ProcessPacket(SOCKET ClientSocket, char* buffer)
             ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
             ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
             ResMsg.MsgHead.MessageSize = sizeof(MessageResUpdatePlayerStateReward);
+            retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
+            break;
+        }
+        case EMessageID::C2S_REQ_SELECT_PLAYERSTATE:
+        {
+            MessageReqSelectPlayerState ReqMsg = { 0, };
+            MessageResSelectPlayerState ResMsg = { 0, };
+            memcpy(&ReqMsg, Packet, sizeof(MessageReqSelectPlayerState));
+            bool bLoginSuccess = false;
+            try
+            {
+                sqlConn = sqlDriver->connect(DB_SERVERNAME, DB_USERNAME, DB_PASSWORD);
+                sqlConn->setSchema(DB_DBNAME);
+                //플레이어 계정정보와 스탯정보 조회
+                sqlQuery = "SELECT                               \
+                                PLA.PLAYER_ID,                   \
+                                PLA.PLAYER_NAME,                 \
+                                PLS.PLAYER_GOLD,                 \
+                                PLS.PLAYER_EXP,                  \
+                                PLS.PLAYER_LEVEL,                \
+                                PLS.PLAYERCHAR_TYPE,             \
+                                PLS.PLAYERCHAR_BODY_SLOT,        \
+                                PLS.PLAYERCHAR_HEAD_SLOT,        \
+                                PLS.PLAYERCHAR_JUMP_STAT,        \
+                                PLS.PLAYERCHAR_STAMINA_STAT,     \
+                                PLS.PLAYERCHAR_SPEED_STAT        \
+                            FROM PLAYER AS PLA                   \
+                                INNER JOIN PLAYERSTATE AS PLS    \
+                                ON PLA.PLAYER_ID = PLS.PLAYER_ID \
+                            WHERE                                \
+                                PLA.PLAYER_ID  = ?               \
+                            LIMIT 1";
+                sqlQuery = string_ReplaceNSpaceTo1Space(sqlQuery);
+                sqlPstmt = sqlConn->prepareStatement(sqlQuery);
+                sqlPstmt->setString(1, ReqMsg.PLAYER_ID);
+
+                sqlRs = sqlPstmt->executeQuery();
+
+
+                if (sqlRs != nullptr && sqlRs->next() == true)
+                {
+                    //해당 ID가 존재하고, 스탯정보도 존재할 경우 
+                    string rsPlayerID = sqlRs->getString("PLAYER_ID").asStdString();
+                    memcpy(ResMsg.PLAYER_ID, rsPlayerID.c_str(), rsPlayerID.length());
+                    string rsPlayerName = sqlRs->getString("PLAYER_NAME").asStdString();
+                    memcpy(ResMsg.PLAYER_NAME, rsPlayerName.c_str(), rsPlayerName.length());
+
+                    ResMsg.PLAYER_GOLD = sqlRs->getInt("PLAYER_GOLD");
+                    ResMsg.PLAYER_EXP = sqlRs->getInt("PLAYER_EXP");
+                    ResMsg.PLAYER_LEVEL = sqlRs->getInt("PLAYER_LEVEL");
+                    ResMsg.PLAYERCHAR_TYPE = sqlRs->getInt("PLAYERCHAR_TYPE");
+                    ResMsg.PLAYERCHAR_BODY_SLOT = sqlRs->getInt("PLAYERCHAR_BODY_SLOT");
+                    ResMsg.PLAYERCHAR_HEAD_SLOT = sqlRs->getInt("PLAYERCHAR_HEAD_SLOT");
+                    ResMsg.PLAYERCHAR_JUMP_STAT = sqlRs->getInt("PLAYERCHAR_JUMP_STAT");
+                    ResMsg.PLAYERCHAR_STAMINA_STAT = sqlRs->getInt("PLAYERCHAR_STAMINA_STAT");
+                    ResMsg.PLAYERCHAR_SPEED_STAT = sqlRs->getInt("PLAYERCHAR_SPEED_STAT");
+                }
+            }
+            catch (sql::SQLException ex)
+            {
+                std::cout << "[ERR] SQL Error On C2S_REQ_SELECT_PLAYERSTATE. ErrorMsg : " << ex.what() << std::endl;
+            }
+            ResMsg.MsgHead.MessageID = (int)EMessageID::S2C_RES_SELECT_PLAYERSTATE;
+            ResMsg.MsgHead.SenderSocketID = (int)NET_SERVERSOCKET;
+            ResMsg.MsgHead.MessageSize = sizeof(MessageResSelectPlayerState);
+            ResMsg.MsgHead.ReceiverSocketID = (int)ClientSocket;
             retval += send(ClientSocket, (char*)&ResMsg, ResMsg.MsgHead.MessageSize, 0);
             break;
         }

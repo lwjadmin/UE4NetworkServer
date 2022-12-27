@@ -10,6 +10,7 @@ enum class EMessageID : int
     C2S_REQ_CREATE_SESSION                   = 11005,    //클라이언트_서버 세션생성 요청 메시지
     C2S_REQ_UPDATE_PLAYERSTATE               = 11006,    //클라이언트_서버 플레이어 상태수정 요청 메시지
     C2S_REQ_UPDATE_PLAYERSTATE_REWARD        = 11007,    //클라이언트_서버 플레이어 상태수정(게임보상) 요청 메시지
+    C2S_REQ_SELECT_PLAYERSTATE               = 11008,    //클라이언트_서버 플레이어 상태조회 요청 메시지
 
     S2C_RES_CLINET_CONNECT                   = 20001,    //서버_클라이언트 연결 응답 메시지
     S2C_RES_CLINET_DISCONNET                 = 20002,    //서버_클라이언트 연결해제 응답 메시지
@@ -21,6 +22,7 @@ enum class EMessageID : int
     S2C_RES_CREATE_SESSION                   = 21005,    //서버_클라이언트 세션생성 응답 메시지
     S2C_RES_UPDATE_PLAYERSTATE               = 21006,    //서버_클라이언트 플레이어 상태수정 응답 메시지
     S2C_RES_UPDATE_PLAYERSTATE_REWARD        = 21007,    //클라이언트_서버 플레이어 상태수정(게임보상) 응답 메시지
+    S2C_RES_SELECT_PLAYERSTATE               = 21008     //클라이언트_서버 플레이어 상태조회 응답 메시지
 };
 
 enum class EProcessFlag : int
@@ -161,8 +163,9 @@ struct MessageReqUpdatePlayerStateReward
 {
     MessageHeader MsgHead;
     char PLAYER_ID[30];
-    int REWARD_PLAYER_GOLD;
-    int REWARD_PLAYER_EXP;
+    int EARN_PLAYER_GOLD;
+    int EARN_PLAYER_EXP;
+    int EARN_PLAYER_LEVEL;
 };
 
 struct MessageResUpdatePlayerStateReward
@@ -171,6 +174,30 @@ struct MessageResUpdatePlayerStateReward
     char PLAYER_ID[30];
     int UPDATED_PLAYER_GOLD;
     int UPDATED_PLAYER_EXP;
+    int UPDATED_PLAYER_LEVEL;
+};
+
+
+struct MessageReqSelectPlayerState
+{
+    MessageHeader MsgHeader;
+    char PLAYER_ID[30];
+};
+
+struct MessageResSelectPlayerState
+{
+    MessageHeader MsgHead;
+    char PLAYER_ID[30];
+    char PLAYER_NAME[30];
+    int PLAYER_GOLD;
+    int PLAYER_EXP;
+    int PLAYER_LEVEL;
+    int PLAYERCHAR_TYPE;
+    int PLAYERCHAR_BODY_SLOT;
+    int PLAYERCHAR_HEAD_SLOT;
+    int PLAYERCHAR_JUMP_STAT;
+    int PLAYERCHAR_STAMINA_STAT;
+    int PLAYERCHAR_SPEED_STAT;
 };
 
 #pragma pack(pop)
